@@ -10,7 +10,7 @@ approvers: # A single approver is preferred, the role of the approver is to rais
 api-approvers: # In case of new or modified APIs or API extensions (CRDs, aggregated apiservers, webhooks, finalizers). If there is no API change, use "None"
   - TBD
 creation-date: 2024-01-03
-last-updated: 2024-01-03
+last-updated: 2024-01-04
 tracking-link: # link to the tracking ticket (for example: Jira Feature or Epic ticket) that corresponds to this enhancement
   - TBD
 see-also:
@@ -39,7 +39,7 @@ The new approach, introduced in the proposal, should also help us to address som
 ### User Stories
 
 * As an Insights recommendation developer/engineer I request a new data to be collected/gathered by the Insights Operator.
-* As an Insights recommendation developer/enginer I request a new data from OCP version X.Y.Z so that I can prepare a new Insights recommendation related to some bug present in the X.Y.Z OCP version. 
+* As an Insights recommendation developer/engineer I request a new data from OCP version X.Y.Z so that I can prepare a new Insights recommendation related to some bug present in the X.Y.Z OCP version. 
 * As an analytics person or product manager I request a new one-off data about my product deployed in the OpenShift. 
 
 ### Goals
@@ -48,11 +48,25 @@ The main goal is to reduce the current effort and time needed to develop a new I
 
 ### Non-Goals
 
-* Fundamental change in the nature of the collected data - we still have some data, we require in every Insights archive (e.g clusteroperator conditions)
+* Fundamental change in the nature of the collected data - we still have some data that we require in every Insights archive (e.g clusteroperator conditions)
 * No remote code execution in OpenShift cluster
 * Change frequency of data gathering
   
 ## Proposal
+
+The plan is to create and deploy a new service running in console.redhat.com environment that will serve the definition of the data gathered by the Insights Operator. The existing data gathered by the Insights Operator can be divided into three groups based on their format:
+
+  * JSON/YAML - we should be able to define most of this data by providing the required group, version, kind (GVK)
+  * container logs - this data can be identified by the namespace name, Pod name and also the messages to be filtered from the log 
+  * Prometheus metrics - this can be identified by the metric name (and perhaps some labels?), but this currently of the unknowns
+
+All these requirements and identifiers will be exposed by the service and the Insights Operator will periodically (2 hours by default) query the service (TBD caching??), read the configuration and gather the data defined in the external configuration.
+
+Similar or substantially the same behaviour or connection already exists - you can see [Conditional data gathering enhancement](../insights/conditional-data-gathering.md)
+
+But, of course, this approach raises a number of new questions, which are discussed in the [Open questions](#open-questions-optional) and [Implementation Details/Notes/Constraints](#implementation-detailsnotesconstraints-optional) sections.
+
+// QUESTIONS - dynamic client, versioning, obfuscation, validation
 
 This is where we get down to the nitty gritty of what the proposal
 actually is. Describe clearly what will be changed, including all of
