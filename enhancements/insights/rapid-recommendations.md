@@ -7,16 +7,16 @@ reviewers:
   - "@deads2k"
 approvers: # A single approver is preferred, the role of the approver is to raise important questions, help ensure the enhancement receives reviews from all applicable areas/SMEs, and determine when consensus is achieved such that the EP can move forward to implementation.  Having multiple approvers makes it difficult to determine who is responsible for the actual approval.
   - TBD
-api-approvers: # In case of new or modified APIs or API extensions (CRDs, aggregated apiservers, webhooks, finalizers). If there is no API change, use "None"
-  - TBD
+api-approvers: 
+  - None
 creation-date: 2024-01-03
-last-updated: 2024-01-04
+last-updated: 2024-01-08
 tracking-link: # link to the tracking ticket (for example: Jira Feature or Epic ticket) that corresponds to this enhancement
   - TBD
 see-also:
-  - "/enhancements/this-other-neat-thing.md"
+  - "/enhancements/insights/conditional-data-gathering.md"
 replaces:
-  - "/enhancements/that-less-than-great-idea.md"
+  - None
 superseded-by:
   - "/enhancements/our-past-effort.md"
 ---
@@ -58,7 +58,7 @@ The plan is to create and deploy a new service running in console.redhat.com env
 
   * JSON/YAML - we should be able to define most of this data by providing the required group, version, kind (GVK)
   * container logs - this data can be identified by the namespace name, Pod name and also the messages to be filtered from the log 
-  * Prometheus metrics - this can be identified by the metric name (and perhaps some labels?), but this currently of the unknowns
+  * Prometheus metrics - this can be identified by the metric name (and perhaps some labels?), but this currently one of the unknowns
 
 All these requirements and identifiers will be exposed by the service and the Insights Operator will periodically (2 hours by default) query the service (TBD caching??), read the configuration and gather the data defined in the external configuration.
 
@@ -66,44 +66,19 @@ Similar or substantially the same behaviour or connection already exists - you c
 
 But, of course, this approach raises a number of new questions, which are discussed in the [Open questions](#open-questions-optional) and [Implementation Details/Notes/Constraints](#implementation-detailsnotesconstraints-optional) sections.
 
-// QUESTIONS - dynamic client, versioning, obfuscation, validation
-
-This is where we get down to the nitty gritty of what the proposal
-actually is. Describe clearly what will be changed, including all of
-the components that need to be modified and how they will be
-different. Include the reason for each choice in the design and
-implementation that is proposed here, and expand on reasons for not
-choosing alternatives in the Alternatives section at the end of the
-document.
-
 ### Workflow Description
 
-Explain how the user will use the feature. Be detailed and explicit.
-Describe all of the actors, their roles, and the APIs or interfaces
-involved. Define a starting state and then list the steps that the
-user would need to go through to trigger the feature described in the
-enhancement. Optionally add a
-[mermaid](https://github.com/mermaid-js/mermaid#readme) sequence
-diagram.
+The main interaction will be on the side of the person requesting the new data for Insights purposes. Let's call this person as "data requester" for the purpose of this enhancement. The main workflow will be following:
 
-Use sub-sections to explain variations, such as for error handling,
-failure recovery, or alternative outcomes.
-
-For example:
-
-**cluster creator** is a human user responsible for deploying a
-cluster.
-
-**application administrator** is a human user responsible for
-deploying an application in a cluster.
-
-1. The cluster creator sits down at their keyboard...
-2. ...
-3. The cluster creator sees that their cluster is ready to receive
-   applications, and gives the application administrator their
-   credentials.
+1. Data requester must know the data and corresponding formatting required by the external configuration service.
+2. Data requester creates a pull request to the repository containing the configuration or source files for the external configuration service. 
+3. The pull request is reviewed (and either approved or denied) by a member of the Observability inteligence (CCX) team.
+4. When the pull request is merged, a new release of the external configuration version is required. 
+5. New version of the external configuration is released and the Insights Operator needs to be able to retrieve it and use it (see more in the [Versioning of the external configuration](#versioning-of-the-external-configuration) section)
 
 #### Variation and form factor considerations [optional]
+
+Do we want to keep this section???? Maybe only for the HyperShift ??
 
 How does this proposal intersect with Standalone OCP, Microshift and Hypershift?
 
@@ -118,11 +93,25 @@ and https://github.com/openshift/enhancements/blob/master/enhancements/agent-ins
 
 This proposal does not add any API extension.
 
-### Implementation Details/Notes/Constraints [optional]
+### Implementation Details/Notes/Constraints 
 
-What are the caveats to the implementation? What are some important details that
-didn't come across above. Go in to as much detail as necessary here. This might
-be a good place to talk about core concepts and how they relate.
+The following subsections discuss some important implementation topics.
+
+#### Validation of the external configuration
+
+The external configuration must be validated. The validation will happen on the Insights Operator side and the idea is to have JSON schema defining the validation rules. The JSON schema is likely to be part of the Insights Operator codebase, which means that the schema can ideally only change between y-stream or x-stream OCP versions. The scenario of failing validation is described in the [Risk mitigation](#risks-and-mitigations) section.
+
+#### Reading and using the external configuration (including data obfuscation)
+
+The external configuration will be unmarshalled and each part will require different approach based on the resulting format of the requested data:
+
+* Data defined with their group, version, kind can be processed using the Kubernetes dynamic client. This client only provides untyped data in the form of `map[string]interface{}`, which of course brings some limitations. One of the limitations is the data obfuscation. We usually know the JSON path of resource attributes we want to obfuscate, but it's probably easier to work with typed data than untyped data. The Kubernetes `unstructured` package offers good ways to work with the JSON paths and unstructured objects, so if we want to mimic the original Insights Operator obfuscation, we can either remove the attributes from the resource or extract them and replace them with `X` characters. This probably means keeping a list of these paths and checking and iterating over them for each resource. The opt-in obfuscation of IP addresses and cluster domain name remains unchanged.
+* Log data will require function to retrieve and read the logs of the particular containers. We already have several such functions in the Insights Operator codebase, but it would be good to unify this approach and use one common function to retrieve and parse or filter container logs.  
+* Prometheus metrics - ??? how to limit the metrics cardinality ??? This can mean data explosion in the archive
+
+#### Versioning of the external configuration
+
+By default, the Insights operator knows only the cluster version so the external configuration can provide the content based on the provided X.Y.Z OCP version. If the corresponding configuration version cannot be parsed or is invalid then the operator tries to get either X.Y.Z-1 or perhaps X.Y.0 - THIS NEEDS TO BE DISCUSSED - [tremes note]: this is probably not very resilient approach. Suppose the following situation - there is important Insights recommendation targeting version 4.15.10, but we want to additionally add some new data for the same version 4.15.10, but the configuration is not correct after recent changes and thus cannot be parsed or validated -> with this approach we lose the data for the important recommendation. 
 
 #### Hypershift [optional]
 
@@ -132,15 +121,17 @@ See https://github.com/openshift/enhancements/blob/e044f84e9b2bafa600e6c24e35d22
 
 ### Risks and Mitigations
 
-What are the risks of this proposal and how do we mitigate. Think broadly. For
-example, consider both security and how this will impact the larger OKD
-ecosystem.
+Risk: The external configuration is not available or cannot be parsed or is invalid.
 
-How will security be reviewed and by whom?
+Mitigation: The Insights operator should provide information about the version of the external configuration it is currently working with and it should also provide information in case of parsing or validation failure. This information must be available in the Insights archive so that we can analyse potential issues.  !!! this requires discussion about caching and versioning !!!
 
-How will UX be reviewed and by whom?
+Risk: No data found/gathered for the specific configuration/request.
 
-Consider including folks that also work outside your immediate sub-project.
+Mitigation: This should not be a major issue and should only affect the relevant Insights recommendation that requires the data. The Insights archive metadata and also the `insightsoperator.operators.openshift.io` CR should indicate that no matching data was found in the cluster for a particular GVK request.
+
+Risk: Increased archive size or potentially big archives.
+
+Mitigation: There is an archive size limitation on the Insights Operator side.
 
 ### Drawbacks
 
@@ -160,10 +151,11 @@ burden?  Is it likely to be superceded by something else in the near future?
 
 ### Open Questions [optional]
 
-This is where to call out areas of the design that require closure before deciding
-to implement the design.  For instance,
- > 1. This requires exposing previously private resources which contain sensitive
-  information.  Can we do this?
+* How to limit the number of resources gathered? Suppose there is a GVK and there are X instances of this GVK. How can we limit it? Do we need to distinguish between namespaced and cluster-wide resources? 
+* How does this proposal fit with the existing techpreview API defined in the [On demand data gathering](../insights/on-demand-data-gathering.md) enhancement proposal? The point is that the existing techpreview API allows the cluster admin to exclude some specific gatherers/data and the exclusion depends on the gatherer name. Should we introduce some naming in the external configuration file?  
+* Should we consider an option of providing or serving a different external configuration for HyperShift clusters? 
+* Do we want to "transform" some existing gatherers into the external configuration?
+* Does each new change in the configuration file mean a new version? The question is whether an update of configuration X.Y.Z is still the same X.Y.Z version or if the versioning of the configuration will be more granular - i.e X.Y.Z-alpha or X.Y.Z-1 or something similar. The problem of the second approach is how the operator can get the newer or latest version. Perhaps the endpoint with X.Y.Z version can only serve as a kind of nagivation in the sense that it would provide a list of corresponding versions. This would require at least two requests from the operator to the external service - but the operator can then cache (in memory) the latest version for the given z-stream and from time to time check if there's some newer version.  
 
 ### Test Plan
 
@@ -362,9 +354,7 @@ History`.
 
 ## Alternatives
 
-Similar to the `Drawbacks` section the `Alternatives` section is used to
-highlight and record other possible approaches to delivering the value proposed
-by an enhancement.
+We are not aware of any similar alternatives. Clearly, we can stick with the current implementation, which does not allow us to respond quickly to the current new Insights recommendations and corresponding data requirements. We do not have a better proposal that would help us avoid the Insights Operator backport process when new potential recommendation for an existing (released) version of X.Y.Z. come up. 
 
 ## Infrastructure Needed [optional]
 
