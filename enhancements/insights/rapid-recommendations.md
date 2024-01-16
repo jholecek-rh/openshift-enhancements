@@ -101,6 +101,26 @@ The following subsections discuss some important implementation topics.
 
 The external configuration must be validated. The validation will happen on the Insights Operator side and the idea is to have JSON schema defining the validation rules. The JSON schema is likely to be part of the Insights Operator codebase, which means that the schema can ideally only change between y-stream or x-stream OCP versions. The scenario of failing validation is described in the [Risk mitigation](#risks-and-mitigations) section.
 
+#### Data Redaction/Obfuscation
+
+Solution TBD; the next section contains some implementation notes regading obfuscation. This section describes the desired data redaction/obfuscation capabilities for now.
+
+Always:
+
+* Prevent gathering of specific API resources?
+* Redact specific fields of API resources, e.g.
+    * Secrets
+    * ClusterProxy (some fields can contain URLs with basic auth credentials)
+
+Depending on the `enableGlobalObfuscation` setting:
+
+* Redact network addresses
+
+Depending on the "workload names" setting (or whatever the name is):
+
+* Redact custom names (e.g. customer-provided object names)
+
+
 #### Reading and using the external configuration (including data obfuscation)
 
 The external configuration will be unmarshalled and each part will require different approach based on the resulting format of the requested data:
